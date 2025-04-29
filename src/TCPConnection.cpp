@@ -34,131 +34,148 @@ public:
     uint16_t getRemotePort() const {
         return remotePort_;
     }
-
-    virtual bool enableStatistics() = 0;
-    virtual std::optional<TCPConnectionStatistics> getStatistics() const = 0;
 };
 
 
-class TCP4Connection : public TCPConnectionBase {
-    MIB_TCPROW tcpRow_;
+template<int ipVersion>
+struct TCPTraits;
+
+template<>
+struct TCPTraits<4> {
+    using RowType = MIB_TCPROW;
+    using TableType = MIB_TCPTABLE;
+    static constexpr auto GetTableFunc = GetTcpTable;
+    static constexpr auto SetEStatsFunc = SetPerTcpConnectionEStats;
+    static constexpr auto GetEStatsFunc = GetPerTcpConnectionEStats;
+};
+
+template<>
+struct TCPTraits<6> {
+    using RowType = MIB_TCP6ROW;
+    using TableType = MIB_TCP6TABLE;
+    static constexpr auto GetTableFunc = GetTcp6Table;
+    static constexpr auto SetEStatsFunc = SetPerTcp6ConnectionEStats;
+    static constexpr auto GetEStatsFunc = GetPerTcp6ConnectionEStats;
+};
+
+
+template<int ipVersion>
+class TCPConnectionImpl : public TCPConnectionBase {
+    typename TCPTraits<ipVersion>::RowType tcpRow_;
     bool statisticsEnabled_ = false;
 
+    void disableStatistics() {
+        TCP_ESTATS_DATA_RW_v0 data_rw = { FALSE };
+        TCP_ESTATS_PATH_RW_v0 path_rw = { FALSE };
+        TCPTraits<ipVersion>::SetEStatsFunc(&tcpRow_, TcpConnectionEstatsPath, reinterpret_cast<PUCHAR>(&path_rw), 0, sizeof(path_rw), 0);
+        TCPTraits<ipVersion>::SetEStatsFunc(&tcpRow_, TcpConnectionEstatsData, reinterpret_cast<PUCHAR>(&data_rw), 0, sizeof(data_rw), 0);
+    }
+
 public:
-    TCP4Connection(const MIB_TCPROW& tcpRow)
+    TCPConnectionImpl(const typename TCPTraits<ipVersion>::RowType& tcpRow)
         : tcpRow_(tcpRow) 
     {
-        ipVersion_ = 4;
+        ipVersion_ = ipVersion;
 
-        char addressBuffer[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &tcpRow_.dwLocalAddr, addressBuffer, sizeof(addressBuffer));
+        char addressBuffer[ipVersion == 4 ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN];
+        if constexpr (ipVersion == 4) {
+            inet_ntop(AF_INET, &tcpRow_.dwLocalAddr, addressBuffer, sizeof(addressBuffer));
+        } else {
+            inet_ntop(AF_INET6, &tcpRow_.LocalAddr, addressBuffer, sizeof(addressBuffer));
+        }
         localAddress_ = std::string(addressBuffer);
         localPort_ = ntohs(static_cast<uint16_t>(tcpRow_.dwLocalPort & 0xFFFF));
 
-        inet_ntop(AF_INET, &tcpRow_.dwRemoteAddr, addressBuffer, sizeof(addressBuffer));
+        if constexpr (ipVersion == 4) {
+            inet_ntop(AF_INET, &tcpRow_.dwRemoteAddr, addressBuffer, sizeof(addressBuffer));
+        } else {
+            inet_ntop(AF_INET6, &tcpRow_.RemoteAddr, addressBuffer, sizeof(addressBuffer));
+        }
         remoteAddress_ = std::string(addressBuffer);
         remotePort_ = ntohs(static_cast<uint16_t>(tcpRow_.dwRemotePort & 0xFFFF));
     }
 
-    ~TCP4Connection() override {
+    ~TCPConnectionImpl() override {
         if (statisticsEnabled_) {
-            // Cleanup if needed
+            disableStatistics();
         }
     }
 
     bool enableStatistics() override {
-        // Implementation here
+        TCP_ESTATS_DATA_RW_v0 data_rw = { TRUE };
+        TCP_ESTATS_PATH_RW_v0 path_rw = { TRUE };
+        if (TCPTraits<ipVersion>::SetEStatsFunc(&tcpRow_, TcpConnectionEstatsPath, reinterpret_cast<PUCHAR>(&path_rw), 0, sizeof(path_rw), 0) == NO_ERROR
+            && TCPTraits<ipVersion>::SetEStatsFunc(&tcpRow_, TcpConnectionEstatsData, reinterpret_cast<PUCHAR>(&data_rw), 0, sizeof(data_rw), 0) == NO_ERROR)
+        {
+            statisticsEnabled_ = true;
+            return true;
+        }
+        disableStatistics();
+        return false;
     }
 
-    std::optional<TCPConnectionStatistics> getStatistics() const override {
-        // Implementation here
+    std::optional<TCPConnectionStatistics> getStatistics() override {
+        if (!statisticsEnabled_)
+            return {};
+        
+        TCP_ESTATS_PATH_ROD_v0 path_rod = { 0 };
+        TCP_ESTATS_DATA_ROD_v0 data_rod = { 0 };
+        if (TCPTraits<ipVersion>::GetEStatsFunc(&tcpRow_, TcpConnectionEstatsPath, 
+                nullptr, 0, 0,
+                nullptr, 0, 0, 
+                reinterpret_cast<PUCHAR>(&path_rod), 0, sizeof(path_rod)
+            ) == NO_ERROR
+            && TCPTraits<ipVersion>::GetEStatsFunc(&tcpRow_, TcpConnectionEstatsData,
+                nullptr, 0, 0,
+                nullptr, 0, 0,
+                reinterpret_cast<PUCHAR>(&data_rod), 0, sizeof(data_rod)
+            ) == NO_ERROR
+        )
+        {
+            TCPConnectionStatistics stats;
+            stats.rtt_ms = path_rod.SampleRtt;
+            stats.sent_bytes = data_rod.DataBytesOut;
+            stats.received_bytes = data_rod.DataBytesIn;
+            stats.retransmitted_bytes = path_rod.BytesRetrans;
+            return stats;
+        }
+
+        return {};
     }
 };
 
 
-class TCP6Connection : public TCPConnectionBase {
-    MIB_TCP6ROW tcpRow_;
-    bool statisticsEnabled_ = false;
+template<int ipVersion>
+void retrieveConnections(std::vector<TCPConnectionPtr>& connections) {
+    using Traits = TCPTraits<ipVersion>;
+    using TableType = typename Traits::TableType;
+    using RowType = typename Traits::RowType;
 
-public:
-    TCP6Connection(const MIB_TCP6ROW& tcpRow)
-        : tcpRow_(tcpRow)
-    {
-        ipVersion_ = 6;
-
-        char addressBuffer[INET6_ADDRSTRLEN];
-        inet_ntop(AF_INET6, &tcpRow_.LocalAddr, addressBuffer, sizeof(addressBuffer));
-        localAddress_ = std::string(addressBuffer);
-        localPort_ = ntohs(static_cast<uint16_t>(tcpRow_.dwLocalPort & 0xFFFF));
-
-        inet_ntop(AF_INET6, &tcpRow_.RemoteAddr, addressBuffer, sizeof(addressBuffer));
-        remoteAddress_ = std::string(addressBuffer);
-        remotePort_ = ntohs(static_cast<uint16_t>(tcpRow_.dwRemotePort & 0xFFFF));
-    }
-
-    ~TCP6Connection() override {
-        if (statisticsEnabled_) {
-            // Cleanup if needed
+    std::vector<uint8_t> tableBuffer;
+    DWORD size = 0;
+    while (Traits::GetTableFunc(nullptr, &size, TRUE) == ERROR_INSUFFICIENT_BUFFER) {
+        size += sizeof(RowType) * 100;
+        tableBuffer.resize(size);
+        auto table = reinterpret_cast<TableType*>(tableBuffer.data());
+        auto ret = Traits::GetTableFunc(table, &size, TRUE);
+        if (ret == ERROR_INSUFFICIENT_BUFFER) {
+            continue;
+        } else if (ret == NO_ERROR) {
+            for (DWORD i = 0; i < table->dwNumEntries; ++i) {
+                connections.push_back(std::make_unique<TCPConnectionImpl<ipVersion>>(table->table[i]));
+            }
+            break;
+        } else {
+            throw std::runtime_error("Failed to retrieve TCP table");
         }
     }
-
-    bool enableStatistics() override {
-        // Implementation here
-    }
-
-    std::optional<TCPConnectionStatistics> getStatistics() const override {
-        // Implementation here
-    }
-};
+}
 
 
 std::vector<TCPConnectionPtr> getTCPConnections() {
     std::vector<TCPConnectionPtr> connections;
-
-    // Retrieve TCPv4 connections
-    std::vector<uint8_t> tcpTableBuffer;
-    DWORD size = 0;
-    while (GetTcpTable(nullptr, &size, TRUE) == ERROR_INSUFFICIENT_BUFFER) {
-        tcpTableBuffer.resize(size);
-        PMIB_TCPTABLE tcpTable = reinterpret_cast<PMIB_TCPTABLE>(tcpTableBuffer.data());
-        auto ret = GetTcpTable(tcpTable, &size, TRUE);
-        if (ret == ERROR_INSUFFICIENT_BUFFER) {
-            continue;
-        }
-        else if (ret == NO_ERROR) {
-            for (DWORD i = 0; i < tcpTable->dwNumEntries; ++i) {
-                connections.push_back(std::make_unique<TCP4Connection>(tcpTable->table[i]));
-            }
-            break;
-        }
-        else {
-            throw std::runtime_error("Failed to retrieve TCP table");
-        }
-    }
-    tcpTableBuffer = {};
-
-    // Retrieve TCPv6 connections
-    std::vector<uint8_t> tcp6TableBuffer;
-    size = 0;
-    while (GetTcp6Table(nullptr, &size, TRUE) == ERROR_INSUFFICIENT_BUFFER) {
-        tcp6TableBuffer.resize(size);
-        PMIB_TCP6TABLE tcp6Table = reinterpret_cast<PMIB_TCP6TABLE>(tcp6TableBuffer.data());
-        auto ret = GetTcp6Table(tcp6Table, &size, TRUE);
-        if (ret == ERROR_INSUFFICIENT_BUFFER) {
-            continue;
-        }
-        else if (ret == NO_ERROR) {
-            for (DWORD i = 0; i < tcp6Table->dwNumEntries; ++i) {
-                connections.push_back(std::make_unique<TCP6Connection>(tcp6Table->table[i]));
-            }
-            break;
-        }
-        else {
-            throw std::runtime_error("Failed to retrieve TCP6 table");
-        }
-    }
-    tcp6TableBuffer = {};
-
+    retrieveConnections<4>(connections);
+    retrieveConnections<6>(connections);
     return connections;
 }
 
