@@ -7,6 +7,7 @@
 #include <wx/wx.h>
 #include <wx/listctrl.h>
 #include <wx/thread.h>
+#include <wx/clipbrd.h>
 
 class MyFrame : public wxFrame
 {
@@ -30,6 +31,8 @@ class MyFrame : public wxFrame
             auto filter_no_loopback = [&](auto& x) {
                 auto ep = x->getRemoteEndpoint();
                 for(auto& c : all_connections) {
+                    if (!c) // 可能已经被move走了
+                        continue;
                     if (c->getIpVersion() != x->getIpVersion()) {
                         continue;
                     }
@@ -83,6 +86,9 @@ class MyFrame : public wxFrame
 
             auto curstat = conn->getStatistics();
             if (!curstat.has_value()) {
+                update_tasks.emplace_back([=, this]() {
+                    listCtrl_->SetItemBackgroundColour(i, *wxRED);
+                });
                 continue;
             }
 
@@ -96,7 +102,7 @@ class MyFrame : public wxFrame
                 auto recv_mbps = recv_diff * 8 / 1e9 / time_diff;
                 auto retrans_rate = static_cast<double>(retrans_diff) / sent_diff;
 
-                update_tasks.emplace_back([=]() {
+                update_tasks.emplace_back([=, this]() {
                     listCtrl_->SetItem(i, 2, wxString::Format(L"%d ms", rtt));
                     listCtrl_->SetItem(i, 3, wxString::Format(L"%.2lf Mbps", sent_mbps));
                     listCtrl_->SetItem(i, 4, wxString::Format(L"%.2lf %%", retrans_rate * 100));
@@ -119,6 +125,7 @@ public:
         wxBoxSizer* rootsizer = new wxBoxSizer(wxVERTICAL);
 
         wxButton* refreshBtn = new wxButton(this, wxID_ANY, L"再取得");
+        refreshBtn->SetToolTip(L"配信中でこのボタンを押すと、配信中の回線情報を再取得します。");
         rootsizer->Add(refreshBtn, 0, wxALL | wxEXPAND, 5);
 
         listCtrl_ = new wxListCtrl(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLC_REPORT);
@@ -127,6 +134,29 @@ public:
         listCtrl_->InsertColumn(2, L"往復遅延時間", wxLIST_FORMAT_LEFT, wxLIST_AUTOSIZE_USEHEADER);
         listCtrl_->InsertColumn(3, L"送信速度", wxLIST_FORMAT_LEFT, wxLIST_AUTOSIZE_USEHEADER);
         listCtrl_->InsertColumn(4, L"再送信率", wxLIST_FORMAT_LEFT, wxLIST_AUTOSIZE_USEHEADER);
+
+        listCtrl_->Bind(wxEVT_MOTION, [this](wxMouseEvent& event) {
+            long col;
+            int flags = 0;
+            listCtrl_->HitTest(event.GetPosition(), flags, &col);
+
+            if (col == 0) {
+                listCtrl_->SetToolTip(L"自分のIPアドレス\r\n\r\n使用している回線（有線、無線、VPNなど）を確認できます。");
+            } else if (col == 1) {
+                listCtrl_->SetToolTip(L"接続先のIPアドレス\r\n\r\n接続先サーバーの情報を確認できます。\r\n【ダブルクリックでコピーが可能です】。\r\nまた、自分でインターネットを利用してサーバーの所在地を調べることもできます。");
+            } else if (col == 2) {
+                listCtrl_->SetToolTip(L"往復遅延時間（RTT）\r\n\r\n接続の往復遅延時間を表示します。\r\n値が高い場合、システムのDNSサーバー設定は間違えった可能性があります。\r\nまた、この値が高いほど、ネットワークがパケット損失に対して耐性が低い可能性があります。");
+            } else if (col == 3) {
+                listCtrl_->SetToolTip(L"送信速度\r\n\r\n配信中の音声や映像の送信速度を表示します。");
+            } else if (col == 4) {
+                listCtrl_->SetToolTip(L"再送信率\r\n\r\n送信データが途中で失われた場合の再送信率を表示します。");
+            } else {
+                listCtrl_->UnsetToolTip();
+            }
+
+            event.Skip();
+        });
+
         listCtrl_->Bind(wxEVT_SIZE, [this](wxSizeEvent& event) {
             int totalWidth = listCtrl_->GetClientSize().GetWidth();
             if (totalWidth < 100) // 否则会出现循环卡死，暂时不知道原因
@@ -136,6 +166,18 @@ public:
             listCtrl_->SetColumnWidth(2, totalWidth * 0.16); // "遅延"
             listCtrl_->SetColumnWidth(3, totalWidth * 0.17); // "上がる速さ"
             listCtrl_->SetColumnWidth(4, totalWidth * 0.16); // "再送信率"
+            event.Skip();
+        });
+
+        listCtrl_->Bind(wxEVT_LEFT_DCLICK, [this](wxMouseEvent& event) {
+            long itemIndex = listCtrl_->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
+            if (itemIndex != wxNOT_FOUND) {
+                wxString text = listCtrl_->GetItemText(itemIndex, 1); // 第二个column
+                if (wxTheClipboard->Open()) {
+                    wxTheClipboard->SetData(new wxTextDataObject(text));
+                    wxTheClipboard->Close();
+                }
+            }
             event.Skip();
         });
 
