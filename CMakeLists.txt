@@ -4,6 +4,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 project(live-rtmp-monitor)
 
+write_file(${CMAKE_BINARY_DIR}/.gitignore "*")
+write_file(${CMAKE_CURRENT_SOURCE_DIR}/wxWidgets-3.2.8/.gitignore "*")
+
 set(wxBUILD_SHARED OFF)
 set(wxBUILD_MSVC_MULTIPROC OFF)
 set(wxBUILD_MSVC_RUNTIME_STATIC ON)
