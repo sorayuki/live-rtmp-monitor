@@ -9,8 +9,10 @@ protected:
     int ipVersion_;
     std::string localAddress_;
     uint16_t localPort_;
+    std::string localEndpoint_;
     std::string remoteAddress_;
     uint16_t remotePort_;
+    std::string remoteEndpoint_;
 
 public:
     virtual ~TCPConnectionBase() = default;
@@ -27,12 +29,20 @@ public:
         return localPort_;
     }
 
+    std::string getLocalEndpoint() const {
+        return localEndpoint_;
+    }
+
     std::string getRemoteAddress() const {
         return remoteAddress_;
     }
 
     uint16_t getRemotePort() const {
         return remotePort_;
+    }
+
+    std::string getRemoteEndpoint() const {
+        return remoteEndpoint_;
     }
 };
 
@@ -85,6 +95,11 @@ public:
         }
         localAddress_ = std::string(addressBuffer);
         localPort_ = ntohs(static_cast<uint16_t>(tcpRow_.dwLocalPort & 0xFFFF));
+        if constexpr (ipVersion == 4) {
+            localEndpoint_ = localAddress_ + ":" + std::to_string(localPort_);
+        } else {
+            localEndpoint_ = "[" + localAddress_ + "]:" + std::to_string(localPort_);
+        }
 
         if constexpr (ipVersion == 4) {
             inet_ntop(AF_INET, &tcpRow_.dwRemoteAddr, addressBuffer, sizeof(addressBuffer));
@@ -93,6 +108,11 @@ public:
         }
         remoteAddress_ = std::string(addressBuffer);
         remotePort_ = ntohs(static_cast<uint16_t>(tcpRow_.dwRemotePort & 0xFFFF));
+        if constexpr (ipVersion == 4) {
+            remoteEndpoint_ = remoteAddress_ + ":" + std::to_string(remotePort_);
+        } else {
+            remoteEndpoint_ = "[" + remoteAddress_ + "]:" + std::to_string(remotePort_);
+        }
     }
 
     ~TCPConnectionImpl() override {
@@ -171,7 +191,7 @@ void retrieveConnections(std::vector<TCPConnectionPtr>& connections) {
 }
 
 
-std::vector<TCPConnectionPtr> getTCPConnections() {
+std::vector<TCPConnectionPtr> GetTCPConnections() {
     std::vector<TCPConnectionPtr> connections;
     retrieveConnections<4>(connections);
     retrieveConnections<6>(connections);

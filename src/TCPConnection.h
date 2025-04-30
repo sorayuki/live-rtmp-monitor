@@ -21,8 +21,10 @@ public:
     virtual int getIpVersion() const = 0;
     virtual std::string getLocalAddress() const = 0;
     virtual uint16_t getLocalPort() const = 0;
+    virtual std::string getLocalEndpoint() const = 0;
     virtual std::string getRemoteAddress() const = 0;
     virtual uint16_t getRemotePort() const = 0;
+    virtual std::string getRemoteEndpoint() const = 0;
 
     virtual bool enableStatistics() = 0;
     virtual std::optional<TCPConnectionStatistics> getStatistics() = 0;
@@ -30,4 +32,4 @@ public:
 
 using TCPConnectionPtr = std::unique_ptr<TCPConnection>;
 
-std::vector<TCPConnectionPtr> getTCPConnections();
+std::vector<TCPConnectionPtr> GetTCPConnections();
