@@ -105,8 +105,8 @@ public:
         TCP_ESTATS_DATA_RW_v0 data_rw = { TRUE };
         TCP_ESTATS_PATH_RW_v0 path_rw = { TRUE };
         if (TCPTraits<ipVersion>::SetEStatsFunc(&tcpRow_, TcpConnectionEstatsPath, reinterpret_cast<PUCHAR>(&path_rw), 0, sizeof(path_rw), 0) == NO_ERROR
-            && TCPTraits<ipVersion>::SetEStatsFunc(&tcpRow_, TcpConnectionEstatsData, reinterpret_cast<PUCHAR>(&data_rw), 0, sizeof(data_rw), 0) == NO_ERROR)
-        {
+            && TCPTraits<ipVersion>::SetEStatsFunc(&tcpRow_, TcpConnectionEstatsData, reinterpret_cast<PUCHAR>(&data_rw), 0, sizeof(data_rw), 0) == NO_ERROR
+        ) {
             statisticsEnabled_ = true;
             return true;
         }
@@ -130,8 +130,7 @@ public:
                 nullptr, 0, 0,
                 reinterpret_cast<PUCHAR>(&data_rod), 0, sizeof(data_rod)
             ) == NO_ERROR
-        )
-        {
+        ) {
             TCPConnectionStatistics stats;
             stats.rtt_ms = path_rod.SampleRtt;
             stats.sent_bytes = data_rod.DataBytesOut;
