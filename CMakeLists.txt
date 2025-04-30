@@ -4,6 +4,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 project(live-rtmp-monitor)
 
+if (NOT MSVC)
+    message(FATAL_ERROR "This project is only tested on Windows with MSVC.")
+endif()
+
 write_file(${CMAKE_BINARY_DIR}/.gitignore "*")
 write_file(${CMAKE_CURRENT_SOURCE_DIR}/wxWidgets-3.2.8/.gitignore "*")
 
