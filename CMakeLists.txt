@@ -12,12 +12,26 @@ if (MINGW)
     add_link_options(-Wl,--gc-sections -static-libstdc++ -static-libgcc -static -s)
 endif()
 
+if (MSVC)
+    add_compile_options("$<$<OR:$<CONFIG:Release>,$<CONFIG:MinSizeRel>,$<CONFIG:RelWithDebInfo>>:/GL>")
+    add_link_options("$<$<OR:$<CONFIG:Release>,$<CONFIG:MinSizeRel>,$<CONFIG:RelWithDebInfo>>:/LTCG>")
+endif()
+
 write_file(${CMAKE_BINARY_DIR}/.gitignore "*")
 write_file(${CMAKE_CURRENT_SOURCE_DIR}/wxWidgets-3.2.8/.gitignore "*")
 
 set(wxBUILD_SHARED OFF)
 set(wxBUILD_MSVC_MULTIPROC OFF)
 set(wxBUILD_MSVC_RUNTIME_STATIC ON)
+set(wxUSE_ARTPROVIDER_TANGO OFF)
+set(wxUSE_REGEX OFF)
+set(wxUSE_ZLIB OFF)
+set(wxUSE_LIBJPEG OFF)
+set(wxUSE_LIBPNG OFF)
+set(wxUSE_LIBTIFF OFF)
+set(wxUSE_SVG OFF)
+set(wxUSE_NANOSVG OFF)
+set(wxUSE_EXPAT OFF)
 
 add_subdirectory(wxWidgets-3.2.8 EXCLUDE_FROM_ALL)
 
@@ -40,8 +54,6 @@ target_sources(live-rtmp-monitor PRIVATE
 set_target_properties(live-rtmp-monitor PROPERTIES
     WIN32_EXECUTABLE ON
 )
-
-
 
 target_link_libraries(live-rtmp-monitor
 PRIVATE
